@@ -1,8 +1,8 @@
 
-import { initializeApp, getApps, FirebaseApp } from "firebase/app";
-import { getAuth, Auth } from "firebase/auth";
-import { getFirestore, Firestore } from "firebase/firestore";
-import { getStorage, FirebaseStorage } from "firebase/storage";
+import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
+import { getAuth, type Auth } from "firebase/auth";
+import { getFirestore, type Firestore, enableIndexedDbPersistence } from "firebase/firestore";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 const authDomain = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN;
@@ -13,8 +13,8 @@ const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID;
 
 if (
   !apiKey ||
-  apiKey === "YOUR_ACTUAL_API_KEY" || // Check for the exact placeholder string
-  (typeof apiKey === 'string' && apiKey.startsWith("YOUR_ACTUAL_")) || // Check for variations
+  apiKey === "YOUR_ACTUAL_API_KEY" || 
+  (typeof apiKey === 'string' && apiKey.startsWith("YOUR_ACTUAL_")) || 
   !authDomain ||
   !projectId ||
   !storageBucket ||
@@ -45,9 +45,9 @@ const firebaseConfig = {
 console.log("Firebase Config Being Used:", JSON.stringify(firebaseConfig, null, 2));
 
 let app: FirebaseApp;
-let auth: Auth;
-let db: Firestore;
-let storage: FirebaseStorage;
+let authInstance: Auth;
+let dbInstance: Firestore;
+let storageInstance: FirebaseStorage;
 
 if (getApps().length === 0) {
   app = initializeApp(firebaseConfig);
@@ -55,8 +55,31 @@ if (getApps().length === 0) {
   app = getApps()[0];
 }
 
-auth = getAuth(app);
-db = getFirestore(app);
-storage = getStorage(app);
+authInstance = getAuth(app);
+const firestore = getFirestore(app);
+dbInstance = firestore; // Assign to the exported 'db'
+storageInstance = getStorage(app);
 
-export { app, auth, db, storage };
+// Attempt to enable offline persistence for Firestore
+enableIndexedDbPersistence(firestore)
+  .then(() => {
+    console.log("Firebase Firestore offline persistence has been enabled. The app can now work with cached data offline.");
+  })
+  .catch((err) => {
+    if (err.code === 'failed-precondition') {
+      console.warn(
+        "Firebase Firestore offline persistence could not be enabled in this tab. " +
+        "This is likely because multiple tabs of the app are open, or due to an existing persistence lease from another tab. " +
+        "Offline capabilities may be limited or unavailable in this specific tab. Closing other tabs might resolve this."
+      );
+    } else if (err.code === 'unimplemented') {
+      console.error(
+        "Firebase Firestore offline persistence is not supported in this browser environment. " +
+        "The app will not be able to cache data for offline use."
+      );
+    } else {
+      console.error("An error occurred while enabling Firebase Firestore offline persistence: ", err);
+    }
+  });
+
+export { app, authInstance as auth, dbInstance as db, storageInstance as storage };
