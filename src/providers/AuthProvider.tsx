@@ -1,8 +1,9 @@
+
 "use client";
 
 import type { ReactNode } from "react";
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import type { UserProfile, FirebaseUser } from "@/types";
 import { doc, getDoc } from "firebase/firestore";
@@ -12,6 +13,7 @@ interface AuthContextType {
   user: FirebaseUser | null;
   userProfile: UserProfile | null;
   loading: boolean;
+  isAnonymous: boolean;
   refreshUserProfile: () => Promise<void>;
 }
 
@@ -21,33 +23,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isAnonymous, setIsAnonymous] = useState(false);
 
   const fetchUserProfile = async (firebaseUser: FirebaseUser | null) => {
-    if (firebaseUser) {
+    if (firebaseUser && !firebaseUser.isAnonymous) {
       const userDocRef = doc(db, "users", firebaseUser.uid);
       const userDocSnap = await getDoc(userDocRef);
       if (userDocSnap.exists()) {
         setUserProfile({ id: firebaseUser.uid, ...userDocSnap.data() } as UserProfile);
       } else {
-        setUserProfile(null); // Or a default profile structure if new user
+        setUserProfile(null); 
       }
     } else {
-      setUserProfile(null);
+      setUserProfile(null); // Anonymous users or no user means no specific profile
     }
   };
   
   const refreshUserProfile = async () => {
-    if (user) {
+    if (user && !user.isAnonymous) {
       await fetchUserProfile(user);
+    } else if (user && user.isAnonymous) {
+      setUserProfile(null); // Ensure profile is null for anonymous users on refresh
     }
   };
 
-
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      await fetchUserProfile(firebaseUser);
-      setLoading(false);
+      if (firebaseUser) {
+        setUser(firebaseUser);
+        setIsAnonymous(firebaseUser.isAnonymous);
+        await fetchUserProfile(firebaseUser);
+        setLoading(false);
+      } else {
+        // No user logged in, try to sign in anonymously
+        try {
+          const userCredential = await signInAnonymously(auth);
+          // onAuthStateChanged will be called again with the new anonymous user
+          // setUser(userCredential.user); // This will be handled by the next onAuthStateChanged call
+          // setIsAnonymous(true);
+          // setUserProfile(null); 
+          // setLoading(false); // Let the subsequent onAuthStateChanged handle setting loading to false
+        } catch (error) {
+          console.error("Anonymous sign-in failed:", error);
+          // If anonymous sign-in fails, keep user as null and stop loading
+          setUser(null);
+          setIsAnonymous(false);
+          setUserProfile(null);
+          setLoading(false);
+        }
+      }
     });
 
     return () => unsubscribe();
@@ -66,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, userProfile, loading, refreshUserProfile }}>
+    <AuthContext.Provider value={{ user, userProfile, loading, isAnonymous, refreshUserProfile }}>
       {children}
     </AuthContext.Provider>
   );

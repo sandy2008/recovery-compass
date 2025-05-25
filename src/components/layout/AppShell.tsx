@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -12,6 +13,7 @@ import {
   X,
   Bell,
   BotMessageSquare,
+  LogIn,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
@@ -32,36 +34,46 @@ import { cn } from "@/lib/utils";
 import Image from "next/image";
 import React, { useState } from "react";
 
-interface NavItem {
+interface NavItemDef {
   href: string;
   label: string;
   icon: React.ElementType;
+  requiresRegisteredUser?: boolean;
 }
 
-const navItems: NavItem[] = [
+const navItemDefs: NavItemDef[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/log", label: "Daily Log", icon: FileText },
   { href: "/ai-tips", label: "AI Recovery Tips", icon: BotMessageSquare },
-  { href: "/profile", label: "Profile", icon: UserCircle },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/profile", label: "Profile", icon: UserCircle, requiresRegisteredUser: true },
+  { href: "/settings", label: "Settings", icon: Settings, requiresRegisteredUser: true },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, userProfile } = useAuth();
+  const { user, userProfile, isAnonymous } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
+  const handleLogoutOrLogin = async () => {
+    if (isAnonymous) {
       router.push("/login");
-    } catch (error) {
-      console.error("Logout failed:", error);
+    } else {
+      try {
+        await signOut(auth);
+        // After sign out, AuthProvider will attempt anonymous sign-in
+        // router.push("/login"); // Not strictly needed if anonymous sign-in is automatic
+      } catch (error) {
+        console.error("Logout failed:", error);
+      }
     }
   };
 
-  const NavLink = ({ item, isMobile = false }: { item: NavItem, isMobile?: boolean }) => (
+  const currentNavItems = navItemDefs.filter(item => 
+    !item.requiresRegisteredUser || (item.requiresRegisteredUser && !isAnonymous)
+  );
+
+  const NavLink = ({ item, isMobile = false }: { item: NavItemDef, isMobile?: boolean }) => (
     <Link
       href={item.href}
       className={cn(
@@ -76,6 +88,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </Link>
   );
 
+  const displayName = isAnonymous ? "Guest User" : (userProfile?.name || user?.email || "User");
+  const userInitial = isAnonymous ? null : (userProfile?.name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase());
+
   return (
     <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
       <aside className="hidden border-r bg-muted/40 md:block">
@@ -87,7 +102,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           </div>
           <nav className="flex-1 overflow-auto py-4 px-2 text-sm font-medium lg:px-4">
-            {navItems.map((item) => (
+            {currentNavItems.map((item) => (
               <NavLink key={item.href} item={item} />
             ))}
           </nav>
@@ -116,7 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </SheetClose>
               </div>
               <nav className="grid gap-2 text-lg font-medium p-4">
-                {navItems.map((item) => (
+                {currentNavItems.map((item) => (
                    <NavLink key={item.href} item={item} isMobile={true} />
                 ))}
               </nav>
@@ -138,9 +153,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="secondary" size="icon" className="rounded-full">
-                {userProfile?.name ? (
+                {userInitial ? (
                   <div className="w-8 h-8 bg-primary text-primary-foreground flex items-center justify-center rounded-full text-sm font-semibold">
-                    {userProfile.name.charAt(0).toUpperCase()}
+                    {userInitial}
                   </div>
                 ) : (
                   <UserCircle className="h-5 w-5" />
@@ -150,21 +165,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>
-                {userProfile?.name || user?.email}
+                {displayName}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => router.push('/profile')}>
-                <UserCircle className="mr-2 h-4 w-4" />
-                Profile
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => router.push('/settings')}>
-                <Settings className="mr-2 h-4 w-4" />
-                Settings
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout}>
-                <LogOut className="mr-2 h-4 w-4" />
-                Logout
+              {!isAnonymous && (
+                <>
+                  <DropdownMenuItem onClick={() => router.push('/profile')}>
+                    <UserCircle className="mr-2 h-4 w-4" />
+                    Profile
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => router.push('/settings')}>
+                    <Settings className="mr-2 h-4 w-4" />
+                    Settings
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              <DropdownMenuItem onClick={handleLogoutOrLogin}>
+                {isAnonymous ? (
+                  <LogIn className="mr-2 h-4 w-4" />
+                ) : (
+                  <LogOut className="mr-2 h-4 w-4" />
+                )}
+                {isAnonymous ? "Login / Sign Up" : "Logout"}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
